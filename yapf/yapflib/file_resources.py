@@ -17,13 +17,21 @@ This module provides functions for interfacing with files: opening, writing, and
 querying.
 """
 
+import codecs
 import fnmatch
 import os
 import re
+import sys
+from configparser import ConfigParser
+from tokenize import detect_encoding
 
 from yapf.yapflib import errors
-from yapf.yapflib import py3compat
 from yapf.yapflib import style
+
+if sys.version_info >= (3, 11):
+  import tomllib
+else:
+  import tomli as tomllib
 
 CR = '\r'
 LF = '\n'
@@ -48,12 +56,6 @@ def _GetExcludePatternsFromYapfIgnore(filename):
 def _GetExcludePatternsFromPyprojectToml(filename):
   """Get a list of file patterns to ignore from pyproject.toml."""
   ignore_patterns = []
-  try:
-    import tomli as tomllib
-  except ImportError:
-    raise errors.YapfError(
-        "tomli package is needed for using pyproject.toml as a "
-        "configuration file")
 
   if os.path.isfile(filename) and os.access(filename, os.R_OK):
     with open(filename, 'rb') as fd:
@@ -120,7 +122,7 @@ def GetDefaultStyleForDir(dirname, default_style=style.DEFAULT_STYLE):
       pass  # It's okay if it's not there.
     else:
       with fd:
-        config = py3compat.ConfigParser()
+        config = ConfigParser()
         config.read_file(fd)
         if config.has_section('yapf'):
           return config_file
@@ -133,13 +135,6 @@ def GetDefaultStyleForDir(dirname, default_style=style.DEFAULT_STYLE):
       pass  # It's okay if it's not there.
     else:
       with fd:
-        try:
-          import tomli as tomllib
-        except ImportError:
-          raise errors.YapfError(
-              "tomli package is needed for using pyproject.toml as a "
-              "configuration file")
-
         pyproject_toml = tomllib.load(fd)
         style_dict = pyproject_toml.get('tool', {}).get('yapf', None)
         if style_dict is not None:
@@ -178,11 +173,10 @@ def WriteReformattedCode(filename,
     in_place: (bool) If True, then write the reformatted code to the file.
   """
   if in_place:
-    with py3compat.open_with_encoding(
-        filename, mode='w', encoding=encoding, newline='') as fd:
+    with codecs.open(filename, mode='w', encoding=encoding) as fd:
       fd.write(reformatted_code)
   else:
-    py3compat.EncodeAndWriteToStdout(reformatted_code)
+    sys.stdout.buffer.write(reformatted_code.encode('utf-8'))
 
 
 def LineEnding(lines):
@@ -202,7 +196,7 @@ def _FindPythonFiles(filenames, recursive, exclude):
   """Find all Python files."""
   if exclude and any(e.startswith('./') for e in exclude):
     raise errors.YapfError("path in '--exclude' should not start with ./")
-  exclude = exclude and [e.rstrip("/" + os.path.sep) for e in exclude]
+  exclude = exclude and [e.rstrip('/' + os.path.sep) for e in exclude]
 
   python_files = []
   for filename in filenames:
@@ -258,16 +252,15 @@ def IsIgnored(path, exclude):
 
 def IsPythonFile(filename):
   """Return True if filename is a Python file."""
-  if os.path.splitext(filename)[1] == '.py':
+  if os.path.splitext(filename)[1] in frozenset({'.py', '.pyi'}):
     return True
 
   try:
     with open(filename, 'rb') as fd:
-      encoding = py3compat.detect_encoding(fd.readline)[0]
+      encoding = detect_encoding(fd.readline)[0]
 
     # Check for correctness of encoding.
-    with py3compat.open_with_encoding(
-        filename, mode='r', encoding=encoding) as fd:
+    with codecs.open(filename, mode='r', encoding=encoding) as fd:
       fd.read()
   except UnicodeDecodeError:
     encoding = 'latin-1'
@@ -278,8 +271,7 @@ def IsPythonFile(filename):
     return False
 
   try:
-    with py3compat.open_with_encoding(
-        filename, mode='r', encoding=encoding) as fd:
+    with codecs.open(filename, mode='r', encoding=encoding) as fd:
       first_line = fd.readline(256)
   except IOError:
     return False
@@ -290,4 +282,4 @@ def IsPythonFile(filename):
 def FileEncoding(filename):
   """Return the file's encoding."""
   with open(filename, 'rb') as fd:
-    return py3compat.detect_encoding(fd.readline)[0]
+    return detect_encoding(fd.readline)[0]

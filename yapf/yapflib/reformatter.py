@@ -19,29 +19,25 @@ can be merged together are. The best formatting is returned as a string.
   Reformat(): the main function exported by this module.
 """
 
-from __future__ import unicode_literals
-
 import collections
 import heapq
 import re
 
-from lib2to3 import pytree
-from lib2to3.pgen2 import token
+from yapf_third_party._ylib2to3 import pytree
+from yapf_third_party._ylib2to3.pgen2 import token
 
 from yapf.pytree import pytree_utils
 from yapf.yapflib import format_decision_state
 from yapf.yapflib import format_token
 from yapf.yapflib import line_joiner
 from yapf.yapflib import style
-from yapf.yapflib import verifier
 
 
-def Reformat(llines, verify=False, lines=None):
+def Reformat(llines, lines=None):
   """Reformat the logical lines.
 
   Arguments:
     llines: (list of logical_line.LogicalLine) Lines we want to format.
-    verify: (bool) True if reformatted code should be verified for syntax.
     lines: (set of int) The lines which can be modified or None if there is no
       line range restriction.
 
@@ -103,7 +99,7 @@ def Reformat(llines, verify=False, lines=None):
     prev_line = lline
 
   _AlignTrailingComments(final_lines)
-  return _FormatFinalLines(final_lines, verify)
+  return _FormatFinalLines(final_lines)
 
 
 def _RetainHorizontalSpacing(line):
@@ -249,8 +245,13 @@ def _CanPlaceOnSingleLine(line):
   Returns:
     True if the line can or should be added to a single line. False otherwise.
   """
-  token_names = [x.name for x in line.tokens]
-  if (style.Get('FORCE_MULTILINE_DICT') and 'LBRACE' in token_names):
+  token_types = [x.type for x in line.tokens]
+  if (style.Get('SPLIT_ARGUMENTS_WHEN_COMMA_TERMINATED') and
+      any(token_types[token_index - 1] == token.COMMA
+          for token_index, token_type in enumerate(token_types[1:], start=1)
+          if token_type == token.RPAR)):
+    return False
+  if (style.Get('FORCE_MULTILINE_DICT') and token.LBRACE in token_types):
     return False
   indent_amt = style.Get('INDENT_WIDTH') * line.depth
   last = line.last
@@ -394,7 +395,7 @@ def _AlignTrailingComments(final_lines):
       final_lines_index += 1
 
 
-def _FormatFinalLines(final_lines, verify):
+def _FormatFinalLines(final_lines):
   """Compose the final output from the finalized lines."""
   formatted_code = []
   for line in final_lines:
@@ -410,8 +411,6 @@ def _FormatFinalLines(final_lines, verify):
           formatted_line.append(' ')
 
     formatted_code.append(''.join(formatted_line))
-    if verify:
-      verifier.VerifyCode(formatted_code[-1])
 
   return ''.join(formatted_code) + '\n'
 
